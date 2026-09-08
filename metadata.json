@@ -1,0 +1,6 @@
+{
+  "name": "Tyler Personal Stuff",
+  "description": "Personal school and study productivity OS for Tyler with JARVIS AI voice assistant, task management, interactive calendar, study timer, subjects hub, AI study tools, and XP rewards.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
