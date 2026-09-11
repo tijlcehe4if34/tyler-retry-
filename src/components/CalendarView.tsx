@@ -28,7 +28,7 @@ import {
 type CalendarViewMode = 'month' | 'week' | 'day';
 
 export const CalendarView: React.FC = () => {
-  const { state, toggleTaskComplete } = useApp();
+  const { state, toggleTaskComplete, toggleChecklistItem } = useApp();
 
   const [viewMode, setViewMode] = useState<CalendarViewMode>(
     state.settings.calendar.defaultView || 'month'
@@ -437,42 +437,103 @@ export const CalendarView: React.FC = () => {
               </div>
             ) : (
               <div className="space-y-3">
-                {getItemsForDate(selectedDateStr).events.map((evt) => (
-                  <div
-                    key={evt.id}
-                    onClick={() => {
-                      setEditingEvent(evt);
-                      setIsEventModalOpen(true);
-                    }}
-                    className="p-4 bg-zinc-950 border border-zinc-800 hover:border-zinc-700 rounded-2xl cursor-pointer transition-all flex items-start gap-4"
-                  >
-                    <div className="w-3 h-12 rounded-full shrink-0" style={{ backgroundColor: evt.color || '#6366f1' }} />
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-base font-bold text-white">{evt.title}</h4>
-                        <span className="px-2 py-0.5 text-xs font-bold rounded-md bg-zinc-900 border border-zinc-800 text-zinc-300">
-                          {evt.category}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3 text-xs text-zinc-400 font-mono mt-1">
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-3.5 h-3.5" />
-                          {formatTimeDisplay(evt.startTime)} - {formatTimeDisplay(evt.endTime)}
-                        </span>
-                        {evt.priority === 'high' && (
-                          <span className="text-rose-400 font-bold flex items-center gap-0.5">
-                            <Flag className="w-3 h-3" /> High Priority
+                {getItemsForDate(selectedDateStr).events.map((evt) => {
+                  const linkedChecklist = evt.sourceChecklistId
+                    ? state.customChecklists.find((c) => c.id === evt.sourceChecklistId)
+                    : null;
+
+                  return (
+                    <div
+                      key={evt.id}
+                      onClick={() => {
+                        setEditingEvent(evt);
+                        setIsEventModalOpen(true);
+                      }}
+                      className="p-4 bg-zinc-950 border border-zinc-800 hover:border-zinc-700 rounded-2xl cursor-pointer transition-all flex items-start gap-4"
+                    >
+                      <div
+                        className="w-3 h-12 rounded-full shrink-0"
+                        style={{ backgroundColor: evt.color || '#6366f1' }}
+                      />
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-base font-bold text-white flex items-center gap-2">
+                            {evt.title}
+                            {linkedChecklist && (
+                              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                                📋 AUTO-SYNCED
+                              </span>
+                            )}
+                          </h4>
+                          <span className="px-2 py-0.5 text-xs font-bold rounded-md bg-zinc-900 border border-zinc-800 text-zinc-300">
+                            {evt.category}
                           </span>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-zinc-400 font-mono mt-1">
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-3.5 h-3.5" />
+                            {formatTimeDisplay(evt.startTime)} - {formatTimeDisplay(evt.endTime)}
+                          </span>
+                          {evt.priority === 'high' && (
+                            <span className="text-rose-400 font-bold flex items-center gap-0.5">
+                              <Flag className="w-3 h-3" /> High Priority
+                            </span>
+                          )}
+                        </div>
+
+                        {/* If linked to a checklist, render interactive items directly on the calendar! */}
+                        {linkedChecklist ? (
+                          <div
+                            className="mt-3 space-y-2 bg-zinc-900/70 p-3 rounded-xl border border-zinc-800"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div className="flex items-center justify-between text-[11px] font-mono text-zinc-400 mb-1">
+                              <span>Checklist Routine Items:</span>
+                              <span className="text-indigo-400 font-bold">
+                                {linkedChecklist.items.filter((i) => i.completed).length} /{' '}
+                                {linkedChecklist.items.length} completed
+                              </span>
+                            </div>
+                            {linkedChecklist.items.length === 0 ? (
+                              <p className="text-xs text-zinc-500 italic">No checklist items yet.</p>
+                            ) : (
+                              linkedChecklist.items.map((item) => (
+                                <div
+                                  key={item.id}
+                                  className="flex items-center gap-2 text-xs text-zinc-300"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={item.completed}
+                                    onChange={() =>
+                                      toggleChecklistItem(linkedChecklist.id, item.id)
+                                    }
+                                    className="w-3.5 h-3.5 rounded text-indigo-600 bg-zinc-800 border-zinc-700 cursor-pointer"
+                                  />
+                                  <span
+                                    className={`truncate ${
+                                      item.completed
+                                        ? 'line-through text-zinc-500'
+                                        : 'text-zinc-200'
+                                    }`}
+                                  >
+                                    {item.text}
+                                  </span>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        ) : (
+                          evt.description && (
+                            <p className="text-xs text-zinc-400 mt-2 bg-zinc-900 p-2.5 rounded-xl border border-zinc-800">
+                              {evt.description}
+                            </p>
+                          )
                         )}
                       </div>
-                      {evt.description && (
-                        <p className="text-xs text-zinc-400 mt-2 bg-zinc-900 p-2.5 rounded-xl border border-zinc-800">
-                          {evt.description}
-                        </p>
-                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

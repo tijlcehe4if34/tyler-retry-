@@ -1,0 +1,66 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile, account settings, and workspace data sync container",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The unique identifier of the user matching request.auth.uid"
+        },
+        "email": {
+          "type": "string",
+          "description": "Email address of the authenticated user"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display name of the user"
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "Avatar URL of the user"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp or server timestamp of the last update"
+        }
+      },
+      "required": ["uid"]
+    },
+    "UserData": {
+      "title": "UserData",
+      "description": "Cross-device synchronized state payload for Tyler's personal OS",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The user ID matching request.auth.uid"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Timestamp of the last sync"
+        },
+        "stateJson": {
+          "type": "string",
+          "description": "Serialized application workspace state containing tasks, subjects, calendar events, checklists, study sessions, and settings"
+        },
+        "version": {
+          "type": "number",
+          "description": "Data schema version number"
+        }
+      },
+      "required": ["userId", "stateJson"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile metadata document accessible exclusively by the owner"
+    },
+    "/users/{userId}/workspace/current": {
+      "schema": "UserData",
+      "description": "Primary workspace state document synced in real-time across all devices logged into by this user"
+    }
+  }
+}

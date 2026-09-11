@@ -36,6 +36,8 @@ export interface CalendarEvent {
   priority: PriorityLevel;
   reminder?: boolean;
   color?: string;
+  sourceType?: 'event' | 'checklist' | 'routine';
+  sourceChecklistId?: string;
 }
 
 export interface Subject {
@@ -66,6 +68,8 @@ export interface StudySession {
   durationMinutes: number;
   notes?: string;
   xpEarned: number;
+  method?: 'timer' | 'manual';
+  loggedWithoutTimer?: boolean;
 }
 
 export interface GamingSession {
@@ -90,6 +94,10 @@ export interface CustomChecklist {
   icon: string;
   category: string;
   items: ChecklistItem[];
+  autoSyncCalendar?: boolean;
+  scheduledDate?: string;
+  scheduledTime?: string;
+  calendarEventId?: string;
 }
 
 export interface RewardItem {

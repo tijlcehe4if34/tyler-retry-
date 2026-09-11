@@ -12,9 +12,11 @@ import {
   Minimize2,
   Sparkles,
   Music,
+  Cloud,
 } from 'lucide-react';
 import { QuickAddModal } from './modals/QuickAddModal';
 import { ReminderModal } from './modals/ReminderModal';
+import { CloudSyncModal } from './modals/CloudSyncModal';
 import { SpotifyPlayer } from './SpotifyPlayer';
 import { ActiveTab } from './Navigation';
 
@@ -31,11 +33,14 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ onOpenMobileMenu, setActiv
     isFocusMode,
     toggleFocusMode,
     studyTimer,
+    currentUser,
+    syncStatus,
   } = useApp();
 
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [isRemindersOpen, setIsRemindersOpen] = useState(false);
   const [isSpotifyOpen, setIsSpotifyOpen] = useState(false);
+  const [isCloudSyncOpen, setIsCloudSyncOpen] = useState(false);
 
   const activeRemindersCount = state.reminders.filter((r) => !r.isDismissed).length;
 
@@ -253,6 +258,34 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ onOpenMobileMenu, setActiv
             )}
           </button>
 
+          {/* Cloud Sync Button */}
+          <button
+            onClick={() => setIsCloudSyncOpen(true)}
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-xl text-xs font-bold transition-all border shadow-xs cursor-pointer ${
+              currentUser
+                ? 'bg-zinc-900/90 hover:bg-zinc-800 border-zinc-800 hover:border-indigo-500/50 text-zinc-300'
+                : 'bg-indigo-950/40 hover:bg-indigo-900/50 border-indigo-500/40 text-indigo-300'
+            }`}
+            title={
+              currentUser
+                ? `Cloud Sync: ${syncStatus} (${currentUser.email})`
+                : 'Enable Cloud Sync across all your devices'
+            }
+          >
+            <Cloud
+              className={`w-3.5 h-3.5 ${
+                syncStatus === 'syncing'
+                  ? 'text-amber-400 animate-pulse'
+                  : currentUser
+                  ? 'text-emerald-400'
+                  : 'text-indigo-400'
+              }`}
+            />
+            <span className="hidden md:inline font-mono">
+              {currentUser ? (syncStatus === 'syncing' ? 'SYNCING' : 'SYNCED') : 'CLOUD SYNC'}
+            </span>
+          </button>
+
           {/* + NEW TASK Button */}
           <button
             onClick={() => setIsQuickAddOpen(true)}
@@ -268,10 +301,24 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ onOpenMobileMenu, setActiv
             className="w-8 h-8 rounded-full bg-indigo-500 border-2 border-indigo-400 flex items-center justify-center font-bold text-xs shadow-lg text-white cursor-pointer hover:scale-105 transition-transform shrink-0"
             title={`${state.settings.profile.name} (Click for Settings)`}
           >
-            {state.settings.profile.name ? state.settings.profile.name[0].toUpperCase() : 'T'}
+            {currentUser?.photoURL ? (
+              <img
+                src={currentUser.photoURL}
+                alt="Avatar"
+                referrerPolicy="no-referrer"
+                className="w-full h-full rounded-full object-cover"
+              />
+            ) : state.settings.profile.name ? (
+              state.settings.profile.name[0].toUpperCase()
+            ) : (
+              'T'
+            )}
           </div>
         </div>
       </header>
+
+      {/* Cloud Sync Modal */}
+      <CloudSyncModal isOpen={isCloudSyncOpen} onClose={() => setIsCloudSyncOpen(false)} />
 
       {/* Quick Add Modal */}
       <QuickAddModal isOpen={isQuickAddOpen} onClose={() => setIsQuickAddOpen(false)} />

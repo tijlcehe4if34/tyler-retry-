@@ -38,6 +38,8 @@ import { sound } from '../lib/sound';
 import { fireConfetti, fireSuperConfetti } from '../lib/confetti';
 import { speechEngine, VoiceOption } from '../lib/speechEngine';
 import { notificationManager, NotificationPermissionState } from '../lib/notificationManager';
+import { cloudSync, SyncStatus } from '../lib/cloudSync';
+import { User } from 'firebase/auth';
 
 export interface StudyTimerState {
   isActive: boolean;
@@ -157,6 +159,7 @@ interface AppContextType {
 
   // Session Trackers
   addStudySession: (session: Omit<StudySession, 'id' | 'timestamp'>) => void;
+  deleteStudySession: (id: string) => void;
   addGamingSession: (session: Omit<GamingSession, 'id' | 'timestamp'>) => void;
 
   // Checklist Actions
@@ -182,6 +185,14 @@ interface AppContextType {
   addReminder: (reminder: Omit<ReminderItem, 'id'>) => void;
   updateReminder: (id: string, updates: Partial<ReminderItem>) => void;
   deleteReminder: (id: string) => void;
+
+  // Cloud Sync & Cross-Device Persistence
+  currentUser: User | null;
+  syncStatus: SyncStatus;
+  lastSyncTime: Date | null;
+  signInWithGoogle: () => Promise<void>;
+  signOutUser: () => Promise<void>;
+  flushCloudSync: () => Promise<void>;
 
   // Voice Clarity & Notification Management
   notificationPermission: NotificationPermissionState;
@@ -212,6 +223,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Focus Mode State
   const [isFocusMode, setIsFocusMode] = useState<boolean>(false);
+
+  // Cloud Sync & Cross-Device Persistence State
+  const [currentUser, setCurrentUser] = useState<User | null>(() => cloudSync.getCurrentUser());
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
 
   // External Navigation Trigger
   const [targetNavTab, setTargetNavTab] = useState<string | null>(null);
@@ -257,10 +273,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [state.subjects, studyTimer.selectedSubjectId]);
 
-  // Sync state to local storage whenever modified
+  // Sync state to local storage and Firestore with debouncing for zero typing delay
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
-    saveAppState(state);
     sound.enabled = state.settings.appearance.soundEnabled;
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    // 250ms debounce for local storage: prevents blocking UI during fast typing
+    saveTimeoutRef.current = setTimeout(() => {
+      saveAppState(state);
+    }, 250);
+
+    // Debounced schedule save to Firebase Firestore
+    cloudSync.scheduleSave(state);
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [state]);
+
+  // Flush on page unload to prevent any data loss
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      saveAppState(state);
+      cloudSync.flushPendingSave();
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [state]);
 
   const dismissNotification = useCallback((id: string) => {
@@ -289,6 +333,141 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const closeLevelUpModal = useCallback(() => {
     setLevelUpModal({ isOpen: false, level: 1 });
+  }, []);
+
+  // Register Cloud Sync Real-time callbacks (cross-device sync)
+  useEffect(() => {
+    cloudSync.registerCallbacks({
+      onRemoteStateReceived: (remoteState) => {
+        setState((prev) => ({
+          ...prev,
+          ...remoteState,
+          tasks: remoteState.tasks || prev.tasks,
+          events: remoteState.events || prev.events,
+          customChecklists: remoteState.customChecklists || prev.customChecklists,
+          subjects: remoteState.subjects || prev.subjects,
+          studySessions: remoteState.studySessions || prev.studySessions,
+          notes: remoteState.notes || prev.notes,
+          quizzes: remoteState.quizzes || prev.quizzes,
+          rewards: remoteState.rewards || prev.rewards,
+        }));
+        pushNotification({
+          type: 'info',
+          title: 'Synced Across Devices',
+          subtitle: 'Updated to the latest workspace state from cloud.',
+          icon: 'Cloud',
+          badgeText: 'CROSS-DEVICE',
+          duration: 3000,
+        });
+      },
+      onSyncStatusChange: (status, syncTime) => {
+        setSyncStatus(status);
+        if (syncTime) setLastSyncTime(syncTime);
+        setCurrentUser(cloudSync.getCurrentUser());
+      },
+    });
+  }, [pushNotification]);
+
+  const signInWithGoogle = useCallback(async () => {
+    try {
+      sound.playClick();
+      const user = await cloudSync.signInWithGoogle();
+      setCurrentUser(user);
+      pushNotification({
+        type: 'achievement_unlock',
+        title: 'Signed in with Google!',
+        subtitle: `Cross-device sync active for ${user.email}.`,
+        icon: 'Cloud',
+        badgeText: 'CLOUD SYNC',
+        duration: 4000,
+      });
+      // Immediately schedule backup
+      cloudSync.scheduleSave(state);
+    } catch (err: unknown) {
+      console.error('Sign in error:', err);
+      pushNotification({
+        type: 'info',
+        title: 'Sign In Failed or Cancelled',
+        subtitle: err instanceof Error ? err.message : 'Could not complete Google sign-in.',
+        icon: 'AlertCircle',
+        badgeText: 'AUTH',
+        duration: 4000,
+      });
+    }
+  }, [pushNotification, state]);
+
+  const signOutUser = useCallback(async () => {
+    try {
+      sound.playClick();
+      await cloudSync.signOut();
+      setCurrentUser(null);
+      pushNotification({
+        type: 'info',
+        title: 'Signed Out',
+        subtitle: 'Local workspace data is preserved safely on this device.',
+        icon: 'LogOut',
+        badgeText: 'AUTH',
+        duration: 3500,
+      });
+    } catch (err) {
+      console.error('Sign out error:', err);
+    }
+  }, [pushNotification]);
+
+  const flushCloudSync = useCallback(async () => {
+    await cloudSync.flushPendingSave();
+  }, []);
+
+  // Ensure any checklists are automatically reflected as events on the daily calendar
+  useEffect(() => {
+    setState((prev) => {
+      let eventsUpdated = false;
+      const currentEvents = [...prev.events];
+
+      for (const list of prev.customChecklists) {
+        if (list.autoSyncCalendar !== false) {
+          const hasLinkedEvent = currentEvents.some(
+            (e) => e.sourceChecklistId === list.id || (list.calendarEventId && e.id === list.calendarEventId)
+          );
+          if (!hasLinkedEvent) {
+            const completedCount = list.items.filter((i) => i.completed).length;
+            const totalCount = list.items.length;
+            const allDone = totalCount > 0 && completedCount === totalCount;
+            const targetDate = list.scheduledDate || getTodayString();
+            const startTime = list.scheduledTime || (list.category === 'Routine' ? '07:30' : '10:00');
+
+            const [h, m] = startTime.split(':').map(Number);
+            const totalMins = (h * 60 + (m || 0) + 30) % 1440;
+            const endH = String(Math.floor(totalMins / 60)).padStart(2, '0');
+            const endM = String(totalMins % 60).padStart(2, '0');
+            const endTime = `${endH}:${endM}`;
+
+            currentEvents.push({
+              id: 'evt_chk_' + list.id,
+              title: `📋 ${list.title} (${completedCount}/${totalCount})`,
+              date: targetDate,
+              startTime,
+              endTime,
+              description:
+                list.items.length > 0
+                  ? list.items.map((it) => `${it.completed ? '☑' : '☐'} ${it.text}`).join('\n')
+                  : 'No checklist items yet.',
+              category: 'Checklist',
+              priority: allDone ? 'low' : 'medium',
+              color: allDone ? '#10b981' : '#6366f1',
+              sourceType: 'checklist',
+              sourceChecklistId: list.id,
+            });
+            eventsUpdated = true;
+          }
+        }
+      }
+
+      if (eventsUpdated) {
+        return { ...prev, events: currentEvents };
+      }
+      return prev;
+    });
   }, []);
 
   // Compute level dynamically based on current total XP
@@ -476,12 +655,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   }, [checkAchievements, pushNotification]);
 
-  // STUDY SESSION TRACKER
+  // STUDY SESSION TRACKER (Supports live timer sessions and offline/manual sessions)
   const addStudySession = useCallback((sessionData: Omit<StudySession, 'id' | 'timestamp'>) => {
+    const isManual = sessionData.method === 'manual' || !!sessionData.loggedWithoutTimer;
     const newSession: StudySession = {
       ...sessionData,
-      id: 'sess_' + Date.now(),
+      id: 'sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
       timestamp: Date.now(),
+      method: isManual ? 'manual' : (sessionData.method || 'timer'),
+      loggedWithoutTimer: isManual,
     };
     setState((prev) => {
       const next = {
@@ -497,21 +679,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     pushNotification({
       type: 'study_complete',
-      title: '🧠 STUDY LAB COMPLETED!',
-      subtitle: `Finished ${sessionData.durationMinutes} minutes of focused study. Keep sharpening your mind!`,
+      title: isManual ? '📖 OFFLINE STUDY LOGGED!' : '🧠 STUDY LAB COMPLETED!',
+      subtitle: isManual
+        ? `Logged ${sessionData.durationMinutes} minutes of self-study without the timer. Great initiative!`
+        : `Finished ${sessionData.durationMinutes} minutes of focused study. Keep sharpening your mind!`,
       xpChange: sessionData.xpEarned,
       icon: 'BookOpen',
-      badgeText: 'FOCUS LAB',
+      badgeText: isManual ? 'OFFLINE STUDY' : 'FOCUS LAB',
       duration: 5000,
     });
 
     if (sessionData.xpEarned > 0) {
-      setTimeout(() => awardXp(sessionData.xpEarned, `Completed ${sessionData.durationMinutes}m study session`), 100);
+      setTimeout(() => awardXp(sessionData.xpEarned, `${isManual ? 'Offline Study' : 'Study Lab'}: ${sessionData.durationMinutes}m`), 100);
     }
 
     // Maintain streak on study completion
-    setTimeout(() => maintainStreak(`Study Lab: ${sessionData.durationMinutes}m Session`), 150);
+    setTimeout(() => maintainStreak(`Study: ${sessionData.durationMinutes}m Session`), 150);
   }, [awardXp, checkAchievements, maintainStreak, pushNotification]);
+
+  const deleteStudySession = useCallback((id: string) => {
+    setState((prev) => ({
+      ...prev,
+      studySessions: prev.studySessions.filter((s) => s.id !== id),
+    }));
+    sound.playClick();
+    pushNotification({
+      type: 'info',
+      title: 'Session Removed',
+      subtitle: 'Study session record was removed from your history.',
+      icon: 'Trash2',
+      badgeText: 'STATS',
+      duration: 3500,
+    });
+  }, [pushNotification]);
 
   // COMPLETE STUDY SESSION LOGIC
   const completeStudySession = useCallback(() => {
@@ -529,6 +729,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         durationMinutes: elapsedMinutes,
         notes: currTimer.sessionNotes.trim() || undefined,
         xpEarned,
+        method: 'timer',
+        loggedWithoutTimer: false,
       });
 
       return {
@@ -563,6 +765,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         durationMinutes: elapsedMinutes,
         notes: currTimer.sessionNotes.trim() || undefined,
         xpEarned,
+        method: 'timer',
+        loggedWithoutTimer: false,
       });
 
       return {
@@ -1276,30 +1480,125 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     sound.playClick();
   }, []);
 
-  // CUSTOM CHECKLISTS
-  const addCustomChecklist = useCallback((listData: Omit<CustomChecklist, 'id'>) => {
-    const newList: CustomChecklist = {
-      ...listData,
-      id: 'chk_' + Date.now(),
-    };
-    setState((prev) => ({
-      ...prev,
-      customChecklists: [...prev.customChecklists, newList],
-    }));
-    sound.playClick();
-  }, []);
+  // CUSTOM CHECKLISTS WITH AUTOMATIC CALENDAR UPDATING
+  const addCustomChecklist = useCallback(
+    (listData: Omit<CustomChecklist, 'id'>) => {
+      const id = 'chk_' + Date.now();
+      const newList: CustomChecklist = {
+        ...listData,
+        id,
+        autoSyncCalendar: listData.autoSyncCalendar !== false,
+        scheduledDate: listData.scheduledDate || getTodayString(),
+        scheduledTime: listData.scheduledTime || (listData.category === 'Routine' ? '07:30' : '10:00'),
+      };
+
+      setState((prev) => {
+        const completedCount = newList.items.filter((i) => i.completed).length;
+        const totalCount = newList.items.length;
+        const allDone = totalCount > 0 && completedCount === totalCount;
+        const targetDate = newList.scheduledDate || getTodayString();
+        const startTime = newList.scheduledTime || '07:30';
+
+        const [h, m] = startTime.split(':').map(Number);
+        const totalMins = (h * 60 + (m || 0) + 30) % 1440;
+        const endH = String(Math.floor(totalMins / 60)).padStart(2, '0');
+        const endM = String(totalMins % 60).padStart(2, '0');
+        const endTime = `${endH}:${endM}`;
+
+        const calendarEvt: CalendarEvent = {
+          id: 'evt_chk_' + id,
+          title: `📋 ${newList.title} (${completedCount}/${totalCount})`,
+          date: targetDate,
+          startTime,
+          endTime,
+          description:
+            newList.items.length > 0
+              ? newList.items.map((it) => `${it.completed ? '☑' : '☐'} ${it.text}`).join('\n')
+              : 'No checklist items yet.',
+          category: 'Checklist',
+          priority: allDone ? 'low' : 'medium',
+          color: allDone ? '#10b981' : '#6366f1',
+          sourceType: 'checklist',
+          sourceChecklistId: id,
+        };
+
+        return {
+          ...prev,
+          customChecklists: [...prev.customChecklists, newList],
+          events: [...prev.events, calendarEvt],
+        };
+      });
+
+      sound.playClick();
+      pushNotification({
+        type: 'info',
+        title: 'Checklist Added & Linked to Calendar',
+        subtitle: `"${newList.title}" will now auto-update your daily schedule.`,
+        icon: 'Calendar',
+        badgeText: 'CALENDAR SYNC',
+        duration: 3500,
+      });
+    },
+    [pushNotification]
+  );
 
   const updateCustomChecklist = useCallback((id: string, updates: Partial<CustomChecklist>) => {
-    setState((prev) => ({
-      ...prev,
-      customChecklists: prev.customChecklists.map((c) => (c.id === id ? { ...c, ...updates } : c)),
-    }));
+    setState((prev) => {
+      const updatedLists = prev.customChecklists.map((c) => (c.id === id ? { ...c, ...updates } : c));
+      const target = updatedLists.find((c) => c.id === id);
+
+      let updatedEvents = [...prev.events];
+      if (target && target.autoSyncCalendar !== false) {
+        const completedCount = target.items.filter((i) => i.completed).length;
+        const totalCount = target.items.length;
+        const allDone = totalCount > 0 && completedCount === totalCount;
+        const targetDate = target.scheduledDate || getTodayString();
+        const startTime = target.scheduledTime || (target.category === 'Routine' ? '07:30' : '10:00');
+
+        const [h, m] = startTime.split(':').map(Number);
+        const totalMins = (h * 60 + (m || 0) + 30) % 1440;
+        const endH = String(Math.floor(totalMins / 60)).padStart(2, '0');
+        const endM = String(totalMins % 60).padStart(2, '0');
+        const endTime = `${endH}:${endM}`;
+
+        const eventPayload: CalendarEvent = {
+          id: target.calendarEventId || 'evt_chk_' + id,
+          title: `📋 ${target.title} (${completedCount}/${totalCount})`,
+          date: targetDate,
+          startTime,
+          endTime,
+          description:
+            target.items.length > 0
+              ? target.items.map((it) => `${it.completed ? '☑' : '☐'} ${it.text}`).join('\n')
+              : 'No checklist items yet.',
+          category: 'Checklist',
+          priority: allDone ? 'low' : 'medium',
+          color: allDone ? '#10b981' : '#6366f1',
+          sourceType: 'checklist',
+          sourceChecklistId: id,
+        };
+
+        const existingIdx = updatedEvents.findIndex((e) => e.sourceChecklistId === id);
+        if (existingIdx >= 0) {
+          updatedEvents[existingIdx] = { ...updatedEvents[existingIdx], ...eventPayload };
+        } else {
+          updatedEvents.push(eventPayload);
+        }
+      }
+
+      return {
+        ...prev,
+        customChecklists: updatedLists,
+        events: updatedEvents,
+      };
+    });
   }, []);
 
   const deleteCustomChecklist = useCallback((id: string) => {
     setState((prev) => ({
       ...prev,
       customChecklists: prev.customChecklists.filter((c) => c.id !== id),
+      events: prev.events.filter((e) => e.sourceChecklistId !== id),
     }));
     sound.playClick();
   }, []);
@@ -1320,14 +1619,57 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         i.id === itemId ? { ...i, completed: isNowCompleted } : i
       );
 
-      const allCompleted = updatedItems.every((i) => i.completed);
-      if (allCompleted && isNowCompleted) {
+      const completedCount = updatedItems.filter((i) => i.completed).length;
+      const totalCount = updatedItems.length;
+      const allDone = totalCount > 0 && completedCount === totalCount;
+
+      const updatedList = { ...list, items: updatedItems };
+      const updatedLists = prev.customChecklists.map((c) =>
+        c.id === checklistId ? updatedList : c
+      );
+
+      // Automatically sync to calendar event
+      let updatedEvents = [...prev.events];
+      const targetDate = list.scheduledDate || getTodayString();
+      const startTime = list.scheduledTime || (list.category === 'Routine' ? '07:30' : '10:00');
+
+      const [h, m] = startTime.split(':').map(Number);
+      const totalMins = (h * 60 + (m || 0) + 30) % 1440;
+      const endH = String(Math.floor(totalMins / 60)).padStart(2, '0');
+      const endM = String(totalMins % 60).padStart(2, '0');
+      const endTime = `${endH}:${endM}`;
+
+      const eventPayload: CalendarEvent = {
+        id: list.calendarEventId || 'evt_chk_' + checklistId,
+        title: `📋 ${list.title} (${completedCount}/${totalCount})`,
+        date: targetDate,
+        startTime,
+        endTime,
+        description:
+          updatedItems.length > 0
+            ? updatedItems.map((it) => `${it.completed ? '☑' : '☐'} ${it.text}`).join('\n')
+            : 'No checklist items yet.',
+        category: 'Checklist',
+        priority: allDone ? 'low' : 'medium',
+        color: allDone ? '#10b981' : '#6366f1',
+        sourceType: 'checklist',
+        sourceChecklistId: checklistId,
+      };
+
+      const existingIdx = updatedEvents.findIndex((e) => e.sourceChecklistId === checklistId);
+      if (existingIdx >= 0) {
+        updatedEvents[existingIdx] = { ...updatedEvents[existingIdx], ...eventPayload };
+      } else {
+        updatedEvents.push(eventPayload);
+      }
+
+      if (allDone && isNowCompleted) {
         sound.playAchievement();
         fireConfetti();
         pushNotification({
           type: 'task_complete',
           title: `✅ ROUTINE PERFECTED: ${list.title}`,
-          subtitle: `All ${updatedItems.length} items checked off! +15 Bonus XP`,
+          subtitle: `All ${updatedItems.length} items checked! Calendar automatically updated. +15 XP`,
           xpChange: 15,
           icon: 'Sparkles',
           badgeText: 'ROUTINE',
@@ -1339,9 +1681,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       return {
         ...prev,
-        customChecklists: prev.customChecklists.map((c) =>
-          c.id === checklistId ? { ...c, items: updatedItems } : c
-        ),
+        customChecklists: updatedLists,
+        events: updatedEvents,
       };
     });
   }, [awardXp, maintainStreak, pushNotification]);
@@ -1357,35 +1698,97 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         completed: false,
         order: list.items.length,
       };
+      const updatedItems = [...list.items, newItem];
+      const updatedList = { ...list, items: updatedItems };
+      const updatedLists = prev.customChecklists.map((c) =>
+        c.id === checklistId ? updatedList : c
+      );
+
+      // Auto update calendar event
+      let updatedEvents = [...prev.events];
+      const completedCount = updatedItems.filter((i) => i.completed).length;
+      const totalCount = updatedItems.length;
+      const existingIdx = updatedEvents.findIndex((e) => e.sourceChecklistId === checklistId);
+      if (existingIdx >= 0) {
+        updatedEvents[existingIdx] = {
+          ...updatedEvents[existingIdx],
+          title: `📋 ${list.title} (${completedCount}/${totalCount})`,
+          description: updatedItems.map((it) => `${it.completed ? '☑' : '☐'} ${it.text}`).join('\n'),
+        };
+      }
+
       return {
         ...prev,
-        customChecklists: prev.customChecklists.map((c) =>
-          c.id === checklistId ? { ...c, items: [...c.items, newItem] } : c
-        ),
+        customChecklists: updatedLists,
+        events: updatedEvents,
       };
     });
     sound.playClick();
   }, []);
 
   const deleteChecklistItem = useCallback((checklistId: string, itemId: string) => {
-    setState((prev) => ({
-      ...prev,
-      customChecklists: prev.customChecklists.map((c) =>
-        c.id === checklistId ? { ...c, items: c.items.filter((i) => i.id !== itemId) } : c
-      ),
-    }));
+    setState((prev) => {
+      const list = prev.customChecklists.find((c) => c.id === checklistId);
+      if (!list) return prev;
+      const updatedItems = list.items.filter((i) => i.id !== itemId);
+      const updatedList = { ...list, items: updatedItems };
+      const updatedLists = prev.customChecklists.map((c) =>
+        c.id === checklistId ? updatedList : c
+      );
+
+      // Auto update calendar event
+      let updatedEvents = [...prev.events];
+      const completedCount = updatedItems.filter((i) => i.completed).length;
+      const totalCount = updatedItems.length;
+      const existingIdx = updatedEvents.findIndex((e) => e.sourceChecklistId === checklistId);
+      if (existingIdx >= 0) {
+        updatedEvents[existingIdx] = {
+          ...updatedEvents[existingIdx],
+          title: `📋 ${list.title} (${completedCount}/${totalCount})`,
+          description: updatedItems.map((it) => `${it.completed ? '☑' : '☐'} ${it.text}`).join('\n'),
+        };
+      }
+
+      return {
+        ...prev,
+        customChecklists: updatedLists,
+        events: updatedEvents,
+      };
+    });
     sound.playClick();
   }, []);
 
   const resetChecklist = useCallback((checklistId: string) => {
-    setState((prev) => ({
-      ...prev,
-      customChecklists: prev.customChecklists.map((c) =>
-        c.id === checklistId ? { ...c, items: c.items.map((i) => ({ ...i, completed: false })) } : c
-      ),
-    }));
+    setState((prev) => {
+      const list = prev.customChecklists.find((c) => c.id === checklistId);
+      if (!list) return prev;
+      const updatedItems = list.items.map((i) => ({ ...i, completed: false }));
+      const updatedList = { ...list, items: updatedItems };
+      const updatedLists = prev.customChecklists.map((c) =>
+        c.id === checklistId ? updatedList : c
+      );
+
+      // Auto update calendar event
+      let updatedEvents = [...prev.events];
+      const existingIdx = updatedEvents.findIndex((e) => e.sourceChecklistId === checklistId);
+      if (existingIdx >= 0) {
+        updatedEvents[existingIdx] = {
+          ...updatedEvents[existingIdx],
+          title: `📋 ${list.title} (0/${updatedItems.length})`,
+          color: '#6366f1',
+          description: updatedItems.map((it) => `☐ ${it.text}`).join('\n'),
+        };
+      }
+
+      return {
+        ...prev,
+        customChecklists: updatedLists,
+        events: updatedEvents,
+      };
+    });
     sound.playClick();
   }, []);
+
 
   // REWARDS
   const addReward = useCallback((rewardData: Omit<RewardItem, 'id'>) => {
@@ -2300,6 +2703,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     updateGame,
     deleteGame,
     addStudySession,
+    deleteStudySession,
     addGamingSession,
     addCustomChecklist,
     updateCustomChecklist,
@@ -2308,6 +2712,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addChecklistItem,
     deleteChecklistItem,
     resetChecklist,
+    currentUser,
+    syncStatus,
+    lastSyncTime,
+    signInWithGoogle,
+    signOutUser,
+    flushCloudSync,
     addReward,
     updateReward,
     deleteReward,

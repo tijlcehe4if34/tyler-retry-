@@ -23,6 +23,160 @@ import {
 } from 'lucide-react';
 import { DynamicIcon } from './DynamicIcon';
 
+interface ChecklistCardProps {
+  list: CustomChecklist;
+  onToggleItem: (checklistId: string, itemId: string) => void;
+  onAddItem: (checklistId: string, text: string) => void;
+  onDeleteItem: (checklistId: string, itemId: string) => void;
+  onReset: (checklistId: string) => void;
+  onDeleteList: (checklistId: string) => void;
+}
+
+const ChecklistCard: React.FC<ChecklistCardProps> = ({
+  list,
+  onToggleItem,
+  onAddItem,
+  onDeleteItem,
+  onReset,
+  onDeleteList,
+}) => {
+  const [itemText, setItemText] = useState('');
+
+  const completedCount = list.items.filter((i) => i.completed).length;
+  const progress = list.items.length > 0 ? Math.round((completedCount / list.items.length) * 100) : 0;
+
+  const handleAdd = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!itemText.trim()) return;
+    onAddItem(list.id, itemText.trim());
+    setItemText('');
+  };
+
+  return (
+    <div className="p-5 bg-zinc-900/90 border border-zinc-800 rounded-3xl flex flex-col justify-between space-y-4 hover:border-zinc-700 transition-all">
+      {/* Header */}
+      <div>
+        <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+              <DynamicIcon name={list.icon} className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-white">{list.title}</h3>
+              <span className="text-[10px] text-zinc-400 uppercase font-mono">{list.category}</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => onReset(list.id)}
+              className="p-1.5 text-zinc-400 hover:text-white rounded-lg hover:bg-zinc-800 transition-colors"
+              title="Reset all items to unchecked"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => {
+                if (window.confirm(`Delete checklist "${list.title}"?`)) onDeleteList(list.id);
+              }}
+              className="p-1.5 text-zinc-500 hover:text-rose-400 rounded-lg hover:bg-rose-500/10 transition-colors"
+              title="Delete checklist"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Calendar Sync Badge */}
+        <div className="mt-2.5 flex items-center justify-between">
+          <div className="inline-flex items-center gap-1.5 text-[11px] font-mono text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded-md">
+            <Calendar className="w-3 h-3 text-indigo-400" />
+            <span>Auto-updates Calendar</span>
+          </div>
+          <span className="text-[11px] font-mono text-zinc-400">
+            {list.scheduledTime || '07:30'}
+          </span>
+        </div>
+
+        {/* Progress Bar */}
+        <div className="mt-3 space-y-1">
+          <div className="flex justify-between text-xs font-mono text-zinc-400">
+            <span>Progress</span>
+            <span>
+              {completedCount} / {list.items.length} ({progress}%)
+            </span>
+          </div>
+          <div className="w-full h-1.5 bg-zinc-950 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-indigo-500 to-emerald-400 rounded-full transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Checklist Items */}
+        <div className="mt-4 space-y-2 max-h-60 overflow-y-auto pr-1">
+          {list.items.length === 0 ? (
+            <p className="text-xs text-zinc-500 italic py-2">No items added yet.</p>
+          ) : (
+            list.items.map((item) => (
+              <div
+                key={item.id}
+                className={`flex items-center justify-between p-2.5 rounded-xl border transition-all ${
+                  item.completed
+                    ? 'bg-zinc-950/50 border-zinc-800/50 text-zinc-500'
+                    : 'bg-zinc-950 border-zinc-800 text-zinc-200'
+                }`}
+              >
+                <label className="flex items-center gap-2.5 flex-1 min-w-0 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={item.completed}
+                    onChange={() => onToggleItem(list.id, item.id)}
+                    className="w-4 h-4 rounded text-indigo-600 bg-zinc-900 border-zinc-700 focus:ring-0 cursor-pointer"
+                  />
+                  <span
+                    className={`text-xs font-medium truncate ${
+                      item.completed ? 'line-through text-zinc-500' : ''
+                    }`}
+                  >
+                    {item.text}
+                  </span>
+                </label>
+
+                <button
+                  onClick={() => onDeleteItem(list.id, item.id)}
+                  className="p-1 text-zinc-600 hover:text-rose-400 transition-colors"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* Add Item form inside card (Isolated state = zero typing delay) */}
+      <form onSubmit={handleAdd} className="pt-2 border-t border-zinc-800/80 flex gap-2">
+        <input
+          type="text"
+          value={itemText}
+          onChange={(e) => setItemText(e.target.value)}
+          placeholder="Add item (press Enter)..."
+          className="flex-1 px-3 py-1.5 bg-zinc-950 border border-zinc-800 rounded-xl text-white placeholder-zinc-500 text-xs focus:outline-none focus:border-indigo-500"
+        />
+        <button
+          type="submit"
+          disabled={!itemText.trim()}
+          className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded-xl text-xs font-bold transition-colors"
+        >
+          Add
+        </button>
+      </form>
+    </div>
+  );
+};
+
 export const TasksView: React.FC = () => {
   const {
     state,
@@ -49,9 +203,8 @@ export const TasksView: React.FC = () => {
   const [newListTitle, setNewListTitle] = useState('');
   const [newListIcon, setNewListIcon] = useState('CheckSquare');
   const [newListCategory, setNewListCategory] = useState('Routine');
-
-  // New item text input state mapped per checklist
-  const [newItemTexts, setNewItemTexts] = useState<Record<string, string>>({});
+  const [newListTime, setNewListTime] = useState('07:30');
+  const [newListAutoCalendar, setNewListAutoCalendar] = useState(true);
 
   const today = getTodayString();
 
@@ -70,16 +223,12 @@ export const TasksView: React.FC = () => {
       icon: newListIcon,
       category: newListCategory,
       items: [],
+      autoSyncCalendar: newListAutoCalendar,
+      scheduledDate: today,
+      scheduledTime: newListTime || '07:30',
     });
     setNewListTitle('');
     setIsNewListOpen(false);
-  };
-
-  const handleAddItemToChecklist = (listId: string) => {
-    const text = newItemTexts[listId];
-    if (!text || !text.trim()) return;
-    addChecklistItem(listId, text.trim());
-    setNewItemTexts((prev) => ({ ...prev, [listId]: '' }));
   };
 
   const getSubject = (subId?: string) => {
@@ -325,122 +474,17 @@ export const TasksView: React.FC = () => {
       {/* CUSTOM CHECKLISTS TAB */}
       {activeTab === 'custom_checklists' && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {state.customChecklists.map((list) => {
-            const completedCount = list.items.filter((i) => i.completed).length;
-            const progress = list.items.length > 0 ? Math.round((completedCount / list.items.length) * 100) : 0;
-
-            return (
-              <div
-                key={list.id}
-                className="p-5 bg-zinc-900/90 border border-zinc-800 rounded-3xl flex flex-col justify-between space-y-4 hover:border-zinc-700 transition-all"
-              >
-                {/* Header */}
-                <div>
-                  <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-                        <DynamicIcon name={list.icon} className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h3 className="text-base font-bold text-white">{list.title}</h3>
-                        <span className="text-[10px] text-zinc-400 uppercase font-mono">{list.category}</span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => resetChecklist(list.id)}
-                        className="p-1.5 text-zinc-400 hover:text-white rounded-lg hover:bg-zinc-800 transition-colors"
-                        title="Reset all items to unchecked"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (window.confirm(`Delete checklist "${list.title}"?`)) deleteCustomChecklist(list.id);
-                        }}
-                        className="p-1.5 text-zinc-500 hover:text-rose-400 rounded-lg hover:bg-rose-500/10 transition-colors"
-                        title="Delete checklist"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Progress Bar */}
-                  <div className="mt-3 space-y-1">
-                    <div className="flex justify-between text-xs font-mono text-zinc-400">
-                      <span>Progress</span>
-                      <span>{completedCount} / {list.items.length} ({progress}%)</span>
-                    </div>
-                    <div className="w-full h-1.5 bg-zinc-950 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-indigo-500 to-emerald-400 rounded-full transition-all duration-300"
-                        style={{ width: `${progress}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Checklist Items */}
-                  <div className="mt-4 space-y-2 max-h-60 overflow-y-auto pr-1">
-                    {list.items.length === 0 ? (
-                      <p className="text-xs text-zinc-500 italic py-2">No items added yet.</p>
-                    ) : (
-                      list.items.map((item) => (
-                        <div
-                          key={item.id}
-                          className={`flex items-center justify-between p-2.5 rounded-xl border transition-all ${
-                            item.completed
-                              ? 'bg-zinc-950/50 border-zinc-800/50 text-zinc-500'
-                              : 'bg-zinc-950 border-zinc-800 text-zinc-200'
-                          }`}
-                        >
-                          <label className="flex items-center gap-2.5 flex-1 min-w-0 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={item.completed}
-                              onChange={() => toggleChecklistItem(list.id, item.id)}
-                              className="w-4 h-4 rounded text-indigo-600 bg-zinc-900 border-zinc-700 focus:ring-0 cursor-pointer"
-                            />
-                            <span className={`text-xs font-medium truncate ${item.completed ? 'line-through text-zinc-500' : ''}`}>
-                              {item.text}
-                            </span>
-                          </label>
-
-                          <button
-                            onClick={() => deleteChecklistItem(list.id, item.id)}
-                            className="p-1 text-zinc-600 hover:text-rose-400 transition-colors"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                {/* Add Item form inside card */}
-                <div className="pt-2 border-t border-zinc-800/80 flex gap-2">
-                  <input
-                    type="text"
-                    value={newItemTexts[list.id] || ''}
-                    onChange={(e) => setNewItemTexts({ ...newItemTexts, [list.id]: e.target.value })}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleAddItemToChecklist(list.id);
-                    }}
-                    placeholder="Add item..."
-                    className="flex-1 px-3 py-1.5 bg-zinc-950 border border-zinc-800 rounded-xl text-white placeholder-zinc-500 text-xs focus:outline-none focus:border-indigo-500"
-                  />
-                  <button
-                    onClick={() => handleAddItemToChecklist(list.id)}
-                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-colors"
-                  >
-                    Add
-                  </button>
-                </div>
-              </div>
-            );
-          })}
+          {state.customChecklists.map((list) => (
+            <ChecklistCard
+              key={list.id}
+              list={list}
+              onToggleItem={toggleChecklistItem}
+              onAddItem={addChecklistItem}
+              onDeleteItem={deleteChecklistItem}
+              onReset={resetChecklist}
+              onDeleteList={deleteCustomChecklist}
+            />
+          ))}
         </div>
       )}
 
@@ -504,6 +548,32 @@ export const TasksView: React.FC = () => {
                     <option value="Sparkles">✨ Sparkles</option>
                   </select>
                 </div>
+              </div>
+
+              {/* Automatic Calendar Scheduling */}
+              <div className="p-3 bg-zinc-950 border border-zinc-800 rounded-xl space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={newListAutoCalendar}
+                    onChange={(e) => setNewListAutoCalendar(e.target.checked)}
+                    className="w-4 h-4 rounded text-indigo-600 bg-zinc-900 border-zinc-700 focus:ring-0 cursor-pointer"
+                  />
+                  <span className="text-xs font-bold text-indigo-300">
+                    Auto-update Daily Calendar Schedule
+                  </span>
+                </label>
+                {newListAutoCalendar && (
+                  <div className="pt-1 flex items-center gap-2">
+                    <span className="text-xs text-zinc-400">Scheduled Time:</span>
+                    <input
+                      type="time"
+                      value={newListTime}
+                      onChange={(e) => setNewListTime(e.target.value)}
+                      className="px-2.5 py-1 bg-zinc-900 border border-zinc-700 rounded-lg text-xs font-mono text-white focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-zinc-800">
