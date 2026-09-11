@@ -35,14 +35,21 @@ class CloudSyncEngine {
       this.currentUser = user;
       if (user) {
         this.initUserSync(user.uid);
+        this.callbacks?.onSyncStatusChange('synced', new Date());
       } else {
         this.stopSync();
+        this.callbacks?.onSyncStatusChange('idle');
       }
     });
   }
 
   public registerCallbacks(callbacks: CloudSyncCallbacks) {
     this.callbacks = callbacks;
+    if (this.currentUser) {
+      callbacks.onSyncStatusChange('synced', new Date());
+    } else {
+      callbacks.onSyncStatusChange('idle');
+    }
   }
 
   public getCurrentUser(): User | null {
@@ -52,9 +59,20 @@ class CloudSyncEngine {
   public async signInWithGoogle(): Promise<User> {
     try {
       const result = await signInWithPopup(auth, googleProvider);
+      this.currentUser = result.user;
+      this.initUserSync(result.user.uid);
+      this.callbacks?.onSyncStatusChange('synced', new Date());
       return result.user;
-    } catch (error) {
-      console.error('Google Sign In failed:', error);
+    } catch (error: unknown) {
+      const err = error as { code?: string; message?: string };
+      console.error('Google Sign In error:', error);
+      if (err.code === 'auth/popup-blocked') {
+        throw new Error('Google sign-in popup was blocked by browser. Please allow popups for this site, or open the app in a new tab.');
+      } else if (err.code === 'auth/popup-closed-by-user') {
+        throw new Error('Sign-in cancelled by user.');
+      } else if (err.code === 'auth/cancelled-popup-request') {
+        throw new Error('Previous sign-in request cancelled.');
+      }
       throw error;
     }
   }
@@ -62,6 +80,8 @@ class CloudSyncEngine {
   public async signOut(): Promise<void> {
     this.stopSync();
     await firebaseSignOut(auth);
+    this.currentUser = null;
+    this.callbacks?.onSyncStatusChange('idle');
   }
 
   private initUserSync(userId: string) {

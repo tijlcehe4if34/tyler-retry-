@@ -370,28 +370,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const signInWithGoogle = useCallback(async () => {
     try {
-      sound.playClick();
       const user = await cloudSync.signInWithGoogle();
       setCurrentUser(user);
+      if (user.displayName) {
+        setState((prev) => {
+          if (!prev.settings.profile.name || prev.settings.profile.name === 'Tyler') {
+            return {
+              ...prev,
+              settings: {
+                ...prev.settings,
+                profile: {
+                  ...prev.settings.profile,
+                  name: user.displayName || prev.settings.profile.name,
+                },
+              },
+            };
+          }
+          return prev;
+        });
+      }
       pushNotification({
         type: 'achievement_unlock',
         title: 'Signed in with Google!',
-        subtitle: `Cross-device sync active for ${user.email}.`,
+        subtitle: `Cross-device sync active for ${user.email || user.displayName}.`,
         icon: 'Cloud',
-        badgeText: 'CLOUD SYNC',
-        duration: 4000,
+        badgeText: 'CONNECTED',
+        duration: 4500,
       });
       // Immediately schedule backup
       cloudSync.scheduleSave(state);
     } catch (err: unknown) {
       console.error('Sign in error:', err);
+      const msg = err instanceof Error ? err.message : 'Could not complete Google sign-in.';
       pushNotification({
         type: 'info',
-        title: 'Sign In Failed or Cancelled',
-        subtitle: err instanceof Error ? err.message : 'Could not complete Google sign-in.',
+        title: 'Google Sign-In Notice',
+        subtitle: msg,
         icon: 'AlertCircle',
         badgeText: 'AUTH',
-        duration: 4000,
+        duration: 6000,
       });
     }
   }, [pushNotification, state]);

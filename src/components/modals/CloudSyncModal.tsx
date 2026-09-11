@@ -153,7 +153,7 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose 
                 onClick={async () => {
                   await signInWithGoogle();
                 }}
-                className="w-full py-2.5 bg-white hover:bg-zinc-100 text-zinc-950 font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-98"
+                className="w-full py-2.5 bg-white hover:bg-zinc-100 text-zinc-950 font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-98 cursor-pointer"
               >
                 <svg className="w-4 h-4" viewBox="0 0 24 24">
                   <path
@@ -175,6 +175,17 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose 
                 </svg>
                 Sign In with Google
               </button>
+
+              <div className="flex items-center justify-between pt-1 text-[11px] text-zinc-400">
+                <span>Popup blocked in iframe?</span>
+                <button
+                  type="button"
+                  onClick={() => window.open(window.location.href, '_blank')}
+                  className="text-indigo-400 hover:text-indigo-300 underline font-semibold inline-flex items-center gap-1 cursor-pointer"
+                >
+                  Open in New Tab
+                </button>
+              </div>
             </div>
           )}
 
