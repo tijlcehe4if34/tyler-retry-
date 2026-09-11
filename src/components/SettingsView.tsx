@@ -50,6 +50,7 @@ export const SettingsView: React.FC = () => {
     signInWithGoogle,
     signOutUser,
     flushCloudSync,
+    setIsDomainAuthModalOpen,
   } = useApp();
 
   const [isManualSyncing, setIsManualSyncing] = useState(false);
@@ -289,14 +290,23 @@ export const SettingsView: React.FC = () => {
                 </button>
               </div>
 
-              <div className="flex items-center gap-2 pt-2 border-t border-indigo-500/20 text-[11px] text-zinc-400">
-                <span>Tip: If popups are blocked by your browser in this preview frame:</span>
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-indigo-500/20 text-[11px] text-zinc-400">
+                <div className="flex items-center gap-2">
+                  <span>Popup blocked?</span>
+                  <button
+                    type="button"
+                    onClick={() => window.open(window.location.href, '_blank')}
+                    className="text-indigo-400 hover:text-indigo-300 underline font-semibold inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    Open in New Tab <ExternalLink className="w-3 h-3" />
+                  </button>
+                </div>
                 <button
                   type="button"
-                  onClick={() => window.open(window.location.href, '_blank')}
-                  className="text-indigo-400 hover:text-indigo-300 underline font-semibold inline-flex items-center gap-1 cursor-pointer"
+                  onClick={() => setIsDomainAuthModalOpen(true)}
+                  className="text-zinc-400 hover:text-zinc-200 underline font-medium inline-flex items-center gap-1 cursor-pointer"
                 >
-                  Open in New Tab <ExternalLink className="w-3 h-3" />
+                  Domain Setup Guide
                 </button>
               </div>
             </div>

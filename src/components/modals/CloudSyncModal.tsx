@@ -28,6 +28,7 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose 
     signInWithGoogle,
     signOutUser,
     flushCloudSync,
+    setIsDomainAuthModalOpen,
   } = useApp();
 
   const [isManualSyncing, setIsManualSyncing] = useState(false);
@@ -177,13 +178,22 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose 
               </button>
 
               <div className="flex items-center justify-between pt-1 text-[11px] text-zinc-400">
-                <span>Popup blocked in iframe?</span>
                 <button
                   type="button"
                   onClick={() => window.open(window.location.href, '_blank')}
                   className="text-indigo-400 hover:text-indigo-300 underline font-semibold inline-flex items-center gap-1 cursor-pointer"
                 >
                   Open in New Tab
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    setIsDomainAuthModalOpen(true);
+                  }}
+                  className="text-zinc-400 hover:text-zinc-200 underline font-medium inline-flex items-center gap-1 cursor-pointer"
+                >
+                  Domain Setup Guide
                 </button>
               </div>
             </div>

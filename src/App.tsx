@@ -17,6 +17,7 @@ import { SubjectsView } from './components/SubjectsView';
 import { JarvisAssistant } from './components/JarvisAssistant';
 import { GamifiedNotificationContainer } from './components/GamifiedNotificationContainer';
 import { LevelUpCelebrationModal } from './components/LevelUpCelebrationModal';
+import { DomainAuthModal } from './components/modals/DomainAuthModal';
 import { FocusModeTheater } from './components/FocusModeTheater';
 import { MobileBottomBar } from './components/MobileBottomBar';
 import { GamifiedNotification } from './types';
@@ -32,6 +33,9 @@ const MainAppContent: React.FC = () => {
     closeLevelUpModal,
     targetNavTab,
     setTargetNavTab,
+    isDomainAuthModalOpen,
+    setIsDomainAuthModalOpen,
+    signInWithGoogle,
   } = useApp();
 
   // Listen to JARVIS voice navigation commands (e.g. "Jarvis, take me to calendar")
@@ -44,6 +48,10 @@ const MainAppContent: React.FC = () => {
 
   const handleNotificationClick = (notif: GamifiedNotification) => {
     dismissNotification(notif.id);
+    if (notif.badgeText === 'FIREBASE' || notif.title.includes('Domain Authorization')) {
+      setIsDomainAuthModalOpen(true);
+      return;
+    }
     if (notif.type === 'achievement_unlock') {
       setActiveTab('achievements');
     } else if (notif.type === 'level_up' || notif.type === 'reward_redeem') {
@@ -123,6 +131,16 @@ const MainAppContent: React.FC = () => {
         level={levelUpModal.level}
         onClose={closeLevelUpModal}
         onViewRewards={() => setActiveTab('rewards')}
+      />
+
+      {/* Firebase Domain Authorization Helper Modal */}
+      <DomainAuthModal
+        isOpen={isDomainAuthModalOpen}
+        onClose={() => setIsDomainAuthModalOpen(false)}
+        onRetry={() => {
+          setIsDomainAuthModalOpen(false);
+          signInWithGoogle();
+        }}
       />
     </div>
   );

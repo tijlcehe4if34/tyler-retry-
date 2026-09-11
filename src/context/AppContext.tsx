@@ -193,6 +193,8 @@ interface AppContextType {
   signInWithGoogle: () => Promise<void>;
   signOutUser: () => Promise<void>;
   flushCloudSync: () => Promise<void>;
+  isDomainAuthModalOpen: boolean;
+  setIsDomainAuthModalOpen: (open: boolean) => void;
 
   // Voice Clarity & Notification Management
   notificationPermission: NotificationPermissionState;
@@ -228,6 +230,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [currentUser, setCurrentUser] = useState<User | null>(() => cloudSync.getCurrentUser());
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+  const [isDomainAuthModalOpen, setIsDomainAuthModalOpen] = useState<boolean>(false);
 
   // External Navigation Trigger
   const [targetNavTab, setTargetNavTab] = useState<string | null>(null);
@@ -401,6 +404,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       cloudSync.scheduleSave(state);
     } catch (err: unknown) {
       console.error('Sign in error:', err);
+      const errorObj = err as { code?: string; message?: string };
+      if (
+        errorObj.code === 'auth/unauthorized-domain' ||
+        (errorObj.message && errorObj.message.includes('unauthorized-domain'))
+      ) {
+        setIsDomainAuthModalOpen(true);
+        pushNotification({
+          type: 'info',
+          title: 'Domain Authorization Needed',
+          subtitle: 'Add this preview domain to Firebase Authorized Domains to enable Google login.',
+          icon: 'ShieldAlert',
+          badgeText: 'FIREBASE',
+          duration: 9000,
+        });
+        return;
+      }
       const msg = err instanceof Error ? err.message : 'Could not complete Google sign-in.';
       pushNotification({
         type: 'info',
@@ -2735,6 +2754,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     signInWithGoogle,
     signOutUser,
     flushCloudSync,
+    isDomainAuthModalOpen,
+    setIsDomainAuthModalOpen,
     addReward,
     updateReward,
     deleteReward,

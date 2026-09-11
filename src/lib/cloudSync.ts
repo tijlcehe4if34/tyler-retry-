@@ -67,11 +67,21 @@ class CloudSyncEngine {
       const err = error as { code?: string; message?: string };
       console.error('Google Sign In error:', error);
       if (err.code === 'auth/popup-blocked') {
-        throw new Error('Google sign-in popup was blocked by browser. Please allow popups for this site, or open the app in a new tab.');
+        const customErr = new Error('Google sign-in popup was blocked by browser. Please allow popups for this site, or open the app in a new tab.');
+        (customErr as any).code = 'auth/popup-blocked';
+        throw customErr;
       } else if (err.code === 'auth/popup-closed-by-user') {
-        throw new Error('Sign-in cancelled by user.');
+        const customErr = new Error('Sign-in cancelled by user.');
+        (customErr as any).code = 'auth/popup-closed-by-user';
+        throw customErr;
       } else if (err.code === 'auth/cancelled-popup-request') {
-        throw new Error('Previous sign-in request cancelled.');
+        const customErr = new Error('Previous sign-in request cancelled.');
+        (customErr as any).code = 'auth/cancelled-popup-request';
+        throw customErr;
+      } else if (err.code === 'auth/unauthorized-domain') {
+        const customErr = new Error(`Domain "${typeof window !== 'undefined' ? window.location.hostname : 'this domain'}" is not authorized in Firebase Console.`);
+        (customErr as any).code = 'auth/unauthorized-domain';
+        throw customErr;
       }
       throw error;
     }
@@ -88,6 +98,24 @@ class CloudSyncEngine {
     if (this.unsubscribeSnapshot) {
       this.unsubscribeSnapshot();
       this.unsubscribeSnapshot = null;
+    }
+
+    // Save/update profile metadata in background
+    if (this.currentUser) {
+      const userProfileRef = doc(db, 'users', userId);
+      setDoc(
+        userProfileRef,
+        {
+          uid: userId,
+          email: this.currentUser.email || '',
+          displayName: this.currentUser.displayName || 'Tyler',
+          photoURL: (this.currentUser.photoURL || '').slice(0, 2500),
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      ).catch((err) => {
+        console.warn('Profile sync notice:', err);
+      });
     }
 
     const docRef = doc(db, 'users', userId, 'workspace', 'current');
@@ -119,9 +147,8 @@ class CloudSyncEngine {
         }
       },
       (error) => {
-        console.warn('Firestore snapshot error:', error);
+        console.warn('Firestore snapshot notice:', error);
         this.callbacks?.onSyncStatusChange('error');
-        handleFirestoreError(error, OperationType.GET, `users/${userId}/workspace/current`);
       }
     );
   }
@@ -138,7 +165,7 @@ class CloudSyncEngine {
    * Debounced save to Firestore. Never blocks UI or keystrokes!
    */
   public scheduleSave(state: AppState) {
-    if (!this.currentUser) return;
+    if (!this.currentUser && !auth.currentUser) return;
 
     this.pendingStateToSave = state;
     this.callbacks?.onSyncStatusChange('syncing');
@@ -153,10 +180,11 @@ class CloudSyncEngine {
   }
 
   public async flushPendingSave(): Promise<void> {
-    if (!this.currentUser || !this.pendingStateToSave || this.isSaving) return;
+    const user = auth.currentUser || this.currentUser;
+    if (!user || !this.pendingStateToSave || this.isSaving) return;
 
     const stateToSave = this.pendingStateToSave;
-    const userId = this.currentUser.uid;
+    const userId = user.uid;
     const json = JSON.stringify(stateToSave);
 
     if (json === this.lastSavedJson) {
@@ -167,21 +195,7 @@ class CloudSyncEngine {
     this.isSaving = true;
 
     try {
-      // 1. Ensure user profile doc exists/updated
-      const userProfileRef = doc(db, 'users', userId);
-      await setDoc(
-        userProfileRef,
-        {
-          uid: userId,
-          email: this.currentUser.email || '',
-          displayName: this.currentUser.displayName || 'Tyler',
-          photoURL: this.currentUser.photoURL || '',
-          updatedAt: new Date().toISOString(),
-        },
-        { merge: true }
-      );
-
-      // 2. Save workspace state
+      // Save workspace state
       const workspaceRef = doc(db, 'users', userId, 'workspace', 'current');
       await setDoc(workspaceRef, {
         userId,
